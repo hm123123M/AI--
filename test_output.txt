@@ -1,0 +1,75 @@
+=== AI智能体开发测试 ===
+脚本目录: D:\人工智能提示词\AI课程
+项目目录: D:\人工智能提示词
+.env文件路径: D:\人工智能提示词\.env
+
+1. 加载配置文件
+.env文件不存在
+BASE_URL: http://127.0.0.1:1234/v1
+MODEL: qwen/qwen3.5-4b
+API_KEY: sk-lm-cH81...
+TEMPERATURE: 1.0
+MAX_TOKENS: 4096
+
+2. 解析连接参数
+协议: http
+主机: 127.0.0.1
+端口: 1234
+路径: /v1/chat/completions
+完整URL: http://127.0.0.1:1234/v1/chat/completions
+请求数据: {'model': 'qwen/qwen3.5-4b', 'messages': [{'role': 'user', 'content': 'Hello'}], 'temperature': 0.7, 'max_tokens': 50}
+
+3. 发送请求到LLM服务
+请求数据: {"model": "qwen/qwen3.5-4b", "messages": [{"role": "user", "content": "Hello"}], "temperature": 0.7, "max_tokens": 50}
+请求头: {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-lm-cH81w7ac:xfAZOrS9dQKaTyY7qf1V'}
+发送请求到: http://127.0.0.1:1234/v1/chat/completions
+请求发送成功
+等待响应...
+响应状态码: 200
+响应数据: {
+  "id": "chatcmpl-15ozczlla7r89gya1i1p2f",
+  "object": "chat.completion",
+  "created": 1775635214,
+  "model": "qwen/qwen3.5-4b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "Okay, the user just sent a greeting, \"Hello\". I should respond in a friendly and welcoming manner to start our conversation. Since they're using Chinese, I'll reply in Chinese as well. Let me keep it simple and open-ended so",
+        "tool_calls": []
+      },
+      "logprobs": null,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 11,
+    "completion_tokens": 50,
+    "total_tokens": 61,
+    "completion_tokens_details": {
+      "reasoning_tokens": 49
+    }
+  },
+  "stats": {},
+  "system_fingerprint": "qwen/qwen3.5-4b"
+}
+
+4. 解析响应结果
+
+=== LLM调用结果 ===
+请求内容: Hello
+模型: qwen/qwen3.5-4b
+响应内容: 
+
+=== 统计信息 ===
+提示词tokens: 11
+完成tokens: 50
+总tokens: 61
+耗时: 10.22秒
+Token速度: 5.97 tokens/秒
+
+连接已关闭
+
+=== 测试完成 ===

@@ -1,0 +1,30 @@
+# 虚拟环境
+venv/
+
+# 编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境变量文件
+.env
+
+# 依赖文件
+*.egg-info/
+
+# 测试输出
+pytest_cache/
+
+# 操作系统文件
+Thumbs.db
+.DS_Store
+
+# 日志文件
+*.log
