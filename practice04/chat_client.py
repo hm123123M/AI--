@@ -11,6 +11,8 @@ from datetime import datetime
 # ================ 常量定义 ================
 LOG_FILE_PATH = r"D:\人工智能提示词\AI课程\log.txt"
 EXTRACT_INTERVAL = 5  # 每5次聊天提取一次关键信息
+MAX_ROUNDS_FOR_COMPRESS = 5  # 超过5轮触发压缩
+MAX_LENGTH_FOR_COMPRESS = 3000  # 超过3000字符触发压缩
 
 # ================ 工具函数定义 ================
 
@@ -229,14 +231,12 @@ def get_weather(city, day=0):
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 def search_chat_history(query=""):
-    """搜索聊天历史记录"""
+    """搜索聊天历史记录 - 读取本地聊天历史文件"""
     try:
-        # 确保目录存在
         log_dir = os.path.dirname(LOG_FILE_PATH)
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        # 读取log文件内容
         if os.path.exists(LOG_FILE_PATH):
             with open(LOG_FILE_PATH, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -279,7 +279,7 @@ def get_system_prompt():
 - 当前时间：{time}
 - 星期：{weekday}
 
-你是一个具备文件操作、网络访问和时间查询能力的AI助手。你可以使用以下工具来帮助用户完成任务：
+你是一个具备文件操作、网络访问、时间查询和聊天历史搜索能力的AI助手。你可以使用以下工具来帮助用户完成任务：
 
 可用工具列表：
 
@@ -341,11 +341,11 @@ def get_system_prompt():
    - 使用示例：{{"tool_name": "get_weather", "args": {{"city": "青城山", "day": 1}}}}
 
 9. **search_chat_history** - 搜索聊天历史
-   - 描述：读取本地聊天历史记录文件，用于查找之前的对话内容
+   - 描述：读取本地聊天历史记录文件，用于查找之前的对话内容和关键信息
    - 参数：
      - query: string, 可选，搜索关键词
    - 使用示例：{{"tool_name": "search_chat_history", "args": {{"query": "查找聊天历史"}}}}
-   - 使用场景：当用户想要查找之前的聊天记录、回顾对话历史，或者需要基于历史对话进行问答时
+   - 使用场景：当用户想要查找之前的聊天记录、回顾对话历史、查询之前讨论过的内容，或者需要基于历史对话进行问答时
 
 使用工具的格式要求：
 - 当你需要调用工具时，请使用JSON格式输出，格式如下：
@@ -358,7 +358,7 @@ def get_system_prompt():
 - 请确认文件路径正确
 - 删除文件前请确认用户意图
 - 创建文件时请确保内容符合用户要求
-- 当用户输入以"/search"开头，或表达"查找聊天历史"的意思时，请使用search_chat_history工具
+- 当用户输入以"/search"开头，或表达"查找聊天历史"、"回顾对话"、"查询历史记录"等意思时，请使用search_chat_history工具
 """.format(date=current_date, time=current_time, weekday=current_weekday)
     
     return prompt
@@ -421,8 +421,8 @@ def send_request(protocol, host, port, path, api_key, messages, temperature=0.7,
     }
     
     max_retries = 3
-    base_timeout = 180  # 基础超时时间180秒
-    retry_delay = 3     # 重试间隔3秒
+    base_timeout = 180
+    retry_delay = 3
     
     for attempt in range(max_retries):
         try:
@@ -450,7 +450,6 @@ def send_request(protocol, host, port, path, api_key, messages, temperature=0.7,
             return response, conn, response.status
             
         except Exception as e:
-            error_msg = str(e).lower()
             if attempt < max_retries - 1:
                 print(f"请求错误 ({attempt + 1}/{max_retries}): {str(e)}")
                 print(f"等待 {retry_delay} 秒后重试...")
@@ -630,14 +629,14 @@ def count_chat_rounds(history):
             rounds += 1
     return rounds
 
-def should_compress_history(history, max_rounds=5, max_length=3000):
+def should_compress_history(history):
     """判断是否需要压缩聊天历史"""
     rounds = count_chat_rounds(history)
     length = calculate_context_length(history)
-    return rounds > max_rounds or length > max_length
+    return rounds > MAX_ROUNDS_FOR_COMPRESS or length > MAX_LENGTH_FOR_COMPRESS
 
-def send_request_with_timeout(protocol, host, port, path, api_key, messages, temperature=0.7, max_tokens=4096, stream=True, timeout=120):
-    """带超时参数的请求函数"""
+def send_request_with_timeout(protocol, host, port, path, api_key, messages, temperature=0.7, max_tokens=4096, stream=True, timeout=800):
+    """带超时参数和重试机制的请求函数"""
     request_data = {
         "model": os.getenv('MODEL', 'qwen/qwen3.5-4b'),
         "messages": messages,
@@ -646,33 +645,43 @@ def send_request_with_timeout(protocol, host, port, path, api_key, messages, tem
         "stream": stream
     }
     
-    try:
-        if protocol == 'https':
-            conn = http.client.HTTPSConnection(host, port, timeout=timeout)
-        else:
-            conn = http.client.HTTPConnection(host, port, timeout=timeout)
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        
-        request_json = json.dumps(request_data)
-        conn.request('POST', path, request_json, headers)
-        
-        response = conn.getresponse()
-        if response.status != 200:
-            response_data = response.read().decode('utf-8')
-            print(f"请求失败，状态码: {response.status}")
-            print(f"错误信息: {response_data}")
-            conn.close()
-            return None, None, None
-        
-        return response, conn, response.status
-        
-    except Exception as e:
-        print(f"请求错误: {str(e)}")
-        return None, None, None
+    max_retries = 3
+    retry_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            if protocol == 'https':
+                conn = http.client.HTTPSConnection(host, port, timeout=timeout)
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=timeout)
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}'
+            }
+            
+            request_json = json.dumps(request_data)
+            conn.request('POST', path, request_json, headers)
+            
+            response = conn.getresponse()
+            if response.status != 200:
+                response_data = response.read().decode('utf-8')
+                print(f"请求失败，状态码: {response.status}")
+                print(f"错误信息: {response_data}")
+                conn.close()
+                return None, None, None
+            
+            return response, conn, response.status
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"请求错误 ({attempt + 1}/{max_retries}): {str(e)}")
+                print(f"等待 {retry_delay} 秒后重试...")
+                time.sleep(retry_delay)
+            else:
+                print(f"请求错误 ({attempt + 1}/{max_retries}): {str(e)}")
+                print("已达到最大重试次数，请求失败")
+                return None, None, None
 
 def compress_history(protocol, host, port, path, api_key, history, temperature=0.7, max_tokens=4096):
     """压缩聊天历史：前70%内容进行总结压缩，最后30%保留原文"""
@@ -792,6 +801,7 @@ def extract_5w_info(protocol, host, port, path, api_key, history, temperature=0.
             dialog_messages.append(msg)
     
     if len(dialog_messages) == 0:
+        print("[5W提取] 没有对话历史，跳过提取")
         return
     
     dialog_text = ""
@@ -799,61 +809,41 @@ def extract_5w_info(protocol, host, port, path, api_key, history, temperature=0.
         role = "用户" if msg['role'] == 'user' else "AI"
         dialog_text += f"{role}: {msg['content']}\n"
     
-    extract_prompt = """请从以下对话历史中提取关键信息，按照5W规则进行提取：
+    # 使用简化的提示词格式，避免模板问题
+    extract_prompt = f"""从以下对话中提取5W关键信息：
 
-对话历史：
-{dialog}
+对话：
+{dialog_text}
 
-提取规则：
-1. Who（谁）：参与对话的人物或主体
-2. What（做了什么）：对话中涉及的主要事件或行为
-3. When（什么时候）：涉及的时间（可选，如果对话中没有提到则留空）
-4. Where（在何处）：涉及的地点（可选，如果对话中没有提到则留空）
-5. Why（为什么）：做这件事的原因或目的（可选，如果对话中没有提到则留空）
-
-请以JSON格式输出提取结果，包含多条关键信息：
-[
-  {{
-    "Who": "人物/主体",
-    "What": "事件/行为",
-    "When": "时间（可选）",
-    "Where": "地点（可选）",
-    "Why": "原因（可选）"
-  }}
-]
-
-注意：
-- 如果某个字段没有信息，请使用空字符串""
-- 尽可能提取多条关键信息
-- 保持简洁，不要添加额外内容"""
+请输出JSON格式：[{{"Who":"谁","What":"做了什么","When":"时间","Where":"地点","Why":"原因"}}]"""
     
+    # 使用简单的消息格式，避免LM Studio模板问题
     extract_request = [
-        {"role": "system", "content": "你是一个专业的信息提取助手，擅长从对话中提取关键信息。"},
-        {"role": "user", "content": extract_prompt.format(dialog=dialog_text)}
+        {"role": "user", "content": extract_prompt}
     ]
     
-    max_retries = 2
+    max_retries = 3
     response = None
     conn = None
     
-    for attempt in range(max_retries + 1):
+    for attempt in range(max_retries):
         if attempt > 0:
-            print(f"[重试第 {attempt} 次...]")
+            print(f"[5W提取] 重试第 {attempt} 次...")
         
         response, conn, status = send_request_with_timeout(
             protocol, host, port, path, api_key, 
             extract_request, temperature, max_tokens, 
-            stream=False, timeout=300
+            stream=False, timeout=800
         )
         
         if response is not None:
             break
         
-        if attempt < max_retries:
-            time.sleep(2)
+        if attempt < max_retries - 1:
+            time.sleep(5)
     
     if response is None:
-        print("5W信息提取请求失败")
+        print("[5W提取] 请求失败，跳过提取")
         return
     
     response_data = process_response(response, conn)
@@ -872,11 +862,10 @@ def extract_5w_info(protocol, host, port, path, api_key, history, temperature=0.
         print("5W信息提取结果为空")
         return
     
-    # 保存到log文件
     save_to_log(extract_result)
 
 def save_to_log(content):
-    """将内容追加保存到log文件"""
+    """将内容追加保存到log文件（增量更新）"""
     try:
         log_dir = os.path.dirname(LOG_FILE_PATH)
         if not os.path.exists(log_dir):
@@ -889,18 +878,19 @@ def save_to_log(content):
             f.write(f"【内容】\n{content}\n")
             f.write(f"{'='*50}\n")
         
-        print(f"[5W信息已保存到: {LOG_FILE_PATH}]")
+        print(f"[5W关键信息已增量保存到: {LOG_FILE_PATH}]")
     
     except Exception as e:
         print(f"保存到log文件失败: {str(e)}")
 
 # ================ 主函数 ================
 def main():
-    print("=== AI智能体工具调用客户端 (带5W提取和历史搜索) ===")
+    print("=== AI智能体工具调用客户端 (practice04 - 5W提取+历史搜索) ===")
     print("欢迎使用具备文件操作能力的AI助手！")
     print("支持的功能：列出文件、重命名文件、删除文件、创建文件、读取文件")
     print("聊天历史超过5轮或上下文长度超过3000字符时自动触发总结压缩")
-    print("每5轮聊天自动提取5W关键信息并保存到日志文件")
+    print(f"每{EXTRACT_INTERVAL}轮聊天自动提取5W关键信息并增量保存到日志文件")
+    print("支持/search命令或search_chat_history工具调用查找聊天历史")
     print("输入消息开始聊天，按Ctrl+C退出\n")
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -940,7 +930,7 @@ def main():
             history.append({"role": "user", "content": user_input})
             total_rounds += 1
             
-            # 检查是否需要提取5W信息（每5轮）
+            # 检查是否需要提取5W信息（每EXTRACT_INTERVAL轮）
             if total_rounds % EXTRACT_INTERVAL == 0:
                 extract_5w_info(protocol, host, port, path, API_KEY, history, TEMPERATURE, MAX_TOKENS)
             
@@ -965,13 +955,11 @@ def main():
             
             # 如果是搜索命令，先读取聊天历史
             if is_search:
-                # 读取log文件内容
                 log_content = ""
                 if os.path.exists(LOG_FILE_PATH):
                     with open(LOG_FILE_PATH, 'r', encoding='utf-8') as f:
                         log_content = f.read()
                 
-                # 将log内容添加到历史中
                 history.append({
                     "role": "user",
                     "content": f"以下是聊天历史记录，请结合我的问题回答：\n\n【历史记录】\n{log_content}\n\n【我的问题】{search_query}"
